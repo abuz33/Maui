@@ -1,4 +1,6 @@
-﻿using CommunityToolkit.Maui.Core.Extensions;
+using System.Runtime.InteropServices;
+using CommunityToolkit.Maui.Core.Extensions;
+using Microsoft.Maui;
 using Microsoft.Maui.Platform;
 
 namespace CommunityToolkit.Maui.Core.Views;
@@ -21,15 +23,10 @@ public static class PopupExtensions
 		else if (popup.Content is not null)
 		{
 			var content = popup.Content;
-			if (!content.Width.IsZeroOrNaN() || !content.Height.IsZeroOrNaN())
-			{
-				mauiPopup.PreferredContentSize = new CGSize(content.Width, content.Height);
-			}
-			else
-			{
-				var measure = popup.Content.Measure(double.PositiveInfinity, double.PositiveInfinity);
-				mauiPopup.PreferredContentSize = new CGSize(measure.Width, measure.Height);
-			}
+			var measure = popup.Content.Measure(double.PositiveInfinity, double.PositiveInfinity);
+			var width = content.Width.IsZeroOrNaN() ? measure.Width : content.Width;
+			var height = content.Height.IsZeroOrNaN() ? measure.Height : content.Height;
+			mauiPopup.PreferredContentSize = new CGSize(width, height);
 		}
 	}
 
@@ -40,6 +37,11 @@ public static class PopupExtensions
 	/// <param name="popup">An instance of <see cref="IPopup"/>.</param>
 	public static void SetBackgroundColor(this MauiPopup mauiPopup, in IPopup popup)
 	{
+		if (mauiPopup.PopoverPresentationController is not null && popup.Color == Colors.Transparent)
+		{
+			mauiPopup.PopoverPresentationController.PopoverBackgroundViewType = typeof(TransparentPopoverBackgroundView);
+		}
+
 		if (mauiPopup.Control is null)
 		{
 			return;
@@ -61,7 +63,10 @@ public static class PopupExtensions
 	/// <param name="popup">An instance of <see cref="IPopup"/>.</param>
 	public static void SetCanBeDismissedByTappingOutsideOfPopup(this MauiPopup mauiPopup, in IPopup popup)
 	{
-		mauiPopup.ModalInPresentation = !popup.CanBeDismissedByTappingOutsideOfPopup;
+		if (OperatingSystem.IsIOSVersionAtLeast(13))
+		{
+			mauiPopup.ModalInPresentation = !popup.CanBeDismissedByTappingOutsideOfPopup;
+		}
 	}
 
 	/// <summary>
@@ -87,30 +92,88 @@ public static class PopupExtensions
 			frame = UIScreen.MainScreen.Bounds;
 		}
 
+		if (mauiPopup.PopoverPresentationController is null)
+		{
+			throw new InvalidOperationException("PopoverPresentationController cannot be null");
+		}
+
 		if (popup.Anchor is null)
 		{
-			var originY = popup.VerticalOptions switch
+			nfloat originY;
+			if (mauiPopup.PreferredContentSize.Height < frame.Height)
 			{
-				Microsoft.Maui.Primitives.LayoutAlignment.End => UIScreen.MainScreen.Bounds.Height,
-				Microsoft.Maui.Primitives.LayoutAlignment.Center => frame.GetMidY(),
-				_ => 0f
-			};
+				originY = popup.VerticalOptions switch
+				{
+					Microsoft.Maui.Primitives.LayoutAlignment.Start => mauiPopup.PreferredContentSize.Height / 2,
+					Microsoft.Maui.Primitives.LayoutAlignment.End => frame.Height - (mauiPopup.PreferredContentSize.Height / 2),
+					Microsoft.Maui.Primitives.LayoutAlignment.Center or Microsoft.Maui.Primitives.LayoutAlignment.Fill => frame.GetMidY(),
+					_ => throw new NotSupportedException($"{nameof(Microsoft.Maui.Primitives.LayoutAlignment)} {popup.VerticalOptions} is not yet supported")
+				};
+			}
+			else
+			{
+				originY = -frame.GetMidY();
+			}
 
-			var originX = popup.HorizontalOptions switch
+			nfloat originX;
+			if (mauiPopup.PreferredContentSize.Width < frame.Width)
 			{
-				Microsoft.Maui.Primitives.LayoutAlignment.End => UIScreen.MainScreen.Bounds.Width,
-				Microsoft.Maui.Primitives.LayoutAlignment.Center => frame.GetMidX(),
-				_ => 0f
-			};
+				originX = popup.HorizontalOptions switch
+				{
+					Microsoft.Maui.Primitives.LayoutAlignment.Start => mauiPopup.PreferredContentSize.Width / 2,
+					Microsoft.Maui.Primitives.LayoutAlignment.End => frame.Width - (mauiPopup.PreferredContentSize.Width / 2),
+					Microsoft.Maui.Primitives.LayoutAlignment.Center or Microsoft.Maui.Primitives.LayoutAlignment.Fill => frame.GetMidX(),
+					_ => throw new NotSupportedException($"{nameof(Microsoft.Maui.Primitives.LayoutAlignment)} {popup.VerticalOptions} is not yet supported")
+				};
+			}
+			else
+			{
+				originX = -frame.GetMidX();
+			}
 
 			mauiPopup.PopoverPresentationController.SourceRect = new CGRect(originX, originY, 0, 0);
 			mauiPopup.PopoverPresentationController.PermittedArrowDirections = 0;
+			// From the point of view of usability, the top, bottom, left, and right values of UIEdgeInsets cannot all be 0.
+			// If you specify 0 for the top, bottom, left, and right of UIEdgeInsets, the default margins will be added, so 
+			// specify a value as close to 0 here as possible.
+			mauiPopup.PopoverPresentationController.PopoverLayoutMargins = new UIEdgeInsets(0.0001f, 0.0001f, 0.0001f, 0.0001f);
 		}
 		else
 		{
-			var view = popup.Anchor.ToPlatform(popup.Handler?.MauiContext ?? throw new NullReferenceException());
+			var view = popup.Anchor.ToPlatform(popup.Handler?.MauiContext ?? throw new InvalidOperationException($"{nameof(popup.Handler.MauiContext)} Cannot Be Null"));
 			mauiPopup.PopoverPresentationController.SourceView = view;
 			mauiPopup.PopoverPresentationController.SourceRect = view.Bounds;
+		}
+	}
+
+	class TransparentPopoverBackgroundView : UIPopoverBackgroundView
+	{
+		public TransparentPopoverBackgroundView(IntPtr handle) : base(handle)
+		{
+			BackgroundColor = Colors.Transparent.ToPlatform();
+			Alpha = 0.0f;
+		}
+
+		public override NFloat ArrowOffset { get; set; }
+
+		public override UIPopoverArrowDirection ArrowDirection { get; set; }
+
+		[Export("arrowHeight")]
+		static new float GetArrowHeight()
+		{
+			return 0f;
+		}
+
+		[Export("arrowBase")]
+		static new float GetArrowBase()
+		{
+			return 0f;
+		}
+
+		[Export("contentViewInsets")]
+		static new UIEdgeInsets GetContentViewInsets()
+		{
+			return UIEdgeInsets.Zero;
 		}
 	}
 }

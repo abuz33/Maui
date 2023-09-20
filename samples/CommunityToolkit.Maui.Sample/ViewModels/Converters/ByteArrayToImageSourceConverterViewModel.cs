@@ -1,4 +1,5 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+﻿using System.Diagnostics;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Maui.Dispatching;
 
@@ -34,7 +35,7 @@ public sealed partial class ByteArrayToImageSourceConverterViewModel : BaseViewM
 		DotNetBotImageByteArray = null;
 	}
 
-	bool CanDownloadDotNetBotImageComandExecute => !IsDownloadingImage && dotNetBotImageByteArray is null;
+	bool CanDownloadDotNetBotImageComandExecute => !IsDownloadingImage && DotNetBotImageByteArray is null;
 
 	[RelayCommand(CanExecute = nameof(CanDownloadDotNetBotImageComandExecute))]
 	async Task DownloadDotNetBotImage()
@@ -58,7 +59,7 @@ public sealed partial class ByteArrayToImageSourceConverterViewModel : BaseViewM
 		}
 		catch (Exception e)
 		{
-			Console.WriteLine(e);
+			Trace.WriteLine(e);
 			OnImageDownloadFailed(e.Message);
 		}
 		finally

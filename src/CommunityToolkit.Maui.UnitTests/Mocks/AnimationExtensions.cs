@@ -32,10 +32,7 @@ static class AnimationExtensions
 
 		class AnimationEnabledMauiContext : IMauiContext, IServiceProvider
 		{
-			public AnimationEnabledMauiContext(IAnimationManager manager)
-			{
-				AnimationManager = manager;
-			}
+			public AnimationEnabledMauiContext(IAnimationManager manager) => AnimationManager = manager;
 
 			public IServiceProvider Services => this;
 
@@ -49,12 +46,16 @@ static class AnimationExtensions
 				{
 					return AnimationManager;
 				}
+				else if (serviceType == typeof(IDispatcher))
+				{
+					return new MockDispatcherProvider().GetForCurrentThread();
+				}
 
 				throw new NotSupportedException();
 			}
 		}
 
-		class AsyncTicker : Ticker
+		sealed class AsyncTicker : Ticker, IDisposable
 		{
 			CancellationTokenSource? cancellationTokenSource;
 
@@ -74,6 +75,11 @@ static class AnimationExtensions
 			}
 
 			public override void Stop() => cancellationTokenSource?.Cancel();
+
+			public void Dispose()
+			{
+				cancellationTokenSource?.Dispose();
+			}
 		}
 
 		class TestAnimationManager : IAnimationManager
